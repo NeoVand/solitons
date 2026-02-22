@@ -53,7 +53,7 @@ fn getIndex(pos: vec3u) -> u32 {
     return clmp.x + clmp.y * params.gridSize.x + clmp.z * params.gridSize.x * params.gridSize.y;
 }
 
-// Trilinear interpolation for smooth glowing volumetric look
+// Exact Trilinear interpolation for ultra-smooth optical volumes
 fn sampleGrid(p: vec3f) -> FieldData {
     let boxScale = 3.5;
     let normalizedP = (p / boxScale + 1.0) * 0.5; // Map [-3.5, 3.5] to [0, 1]
@@ -64,13 +64,46 @@ fn sampleGrid(p: vec3f) -> FieldData {
     );
     
     let base = vec3u(scaledP);
-    let fract = scaledP - vec3f(base);
+    let t = scaledP - vec3f(base); // fractional interpolation weights
     
-    // Sample 8 corners (simplified interpolation logic for performance limits)
-    // Could do full trilinear, but nearest + a bit of jitter or smoothstep is faster.
-    // For now, let's keep it near-neighbor for raw speed and rely on density accumulation for smoothness.
+    // Sample all 8 bounding corners of the voxel
+    let i000 = getIndex(base + vec3u(0u, 0u, 0u));
+    let i100 = getIndex(base + vec3u(1u, 0u, 0u));
+    let i010 = getIndex(base + vec3u(0u, 1u, 0u));
+    let i110 = getIndex(base + vec3u(1u, 1u, 0u));
+    let i001 = getIndex(base + vec3u(0u, 0u, 1u));
+    let i101 = getIndex(base + vec3u(1u, 0u, 1u));
+    let i011 = getIndex(base + vec3u(0u, 1u, 1u));
+    let i111 = getIndex(base + vec3u(1u, 1u, 1u));
+
+    let f000 = fields[i000];
+    let f100 = fields[i100];
+    let f010 = fields[i010];
+    let f110 = fields[i110];
+    let f001 = fields[i001];
+    let f101 = fields[i101];
+    let f011 = fields[i011];
+    let f111 = fields[i111];
+
+    // Trilinear Mix E fields
+    let E00 = mix(f000.E, f100.E, t.x);
+    let E10 = mix(f010.E, f110.E, t.x);
+    let E01 = mix(f001.E, f101.E, t.x);
+    let E11 = mix(f011.E, f111.E, t.x);
+    let E0 = mix(E00, E10, t.y);
+    let E1 = mix(E01, E11, t.y);
+    let E = mix(E0, E1, t.z);
+
+    // Trilinear Mix B fields
+    let B00 = mix(f000.B, f100.B, t.x);
+    let B10 = mix(f010.B, f110.B, t.x);
+    let B01 = mix(f001.B, f101.B, t.x);
+    let B11 = mix(f011.B, f111.B, t.x);
+    let B0 = mix(B00, B10, t.y);
+    let B1 = mix(B01, B11, t.y);
+    let B = mix(B0, B1, t.z);
     
-    return fields[getIndex(base)];
+    return FieldData(E, B);
 }
 
 // Box intersection

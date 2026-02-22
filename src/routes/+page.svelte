@@ -22,6 +22,7 @@
     let showSpawner = true;
 
     let gridRes = 128; // Dynamic grid resolution control
+    let isRebuilding = false; // Prevents render loop during async teardown
 
     // Visual Fall-off Curve
     let curvePoints = [
@@ -39,33 +40,53 @@
         engine.updateCurve(curvePoints);
     }
 
-    onMount(async () => {
+    async function initSimulation() {
+        if (!canvas) return;
+        isRebuilding = true;
         try {
+            if (engine) engine.dispose();
+
             const { device, context, format } = await initWebGPU(canvas);
 
-            // Increased grid size to 128x128x128 for much higher resolution
-            engine = new SimulatorEngine(
-                device,
-                context,
-                format,
-                [128, 128, 128],
-            );
+            engine = new SimulatorEngine(device, context, format, [
+                gridRes,
+                gridRes,
+                gridRes,
+            ]);
             await engine.init();
+
+            engine.dt = dt;
+            engine.dx = dx;
+            engine.blend = blend;
+            engine.absorption = absorption;
+            engine.updateCurve(curvePoints);
 
             // Start with an electron as default visualization
             engine.injectSoliton(0.08, -1);
-
-            function loop() {
-                const shouldCompute = isPlaying;
-                engine.step(shouldCompute);
-                requestAnimationFrame(loop);
-            }
-            loop();
+            isRebuilding = false;
         } catch (err: any) {
             errorMsg = err.message || "Failed to initialize WebGPU";
             console.error(err);
+            isRebuilding = false;
         }
+    }
+
+    onMount(() => {
+        initSimulation().then(() => {
+            function loop() {
+                if (engine && !isRebuilding) {
+                    const shouldCompute = isPlaying;
+                    engine.step(shouldCompute);
+                }
+                requestAnimationFrame(loop);
+            }
+            loop();
+        });
     });
+
+    function applyResolution() {
+        initSimulation();
+    }
 
     function togglePlay() {
         isPlaying = !isPlaying;
@@ -219,6 +240,37 @@
                                 step="0.01"
                                 bind:value={blend}
                             />
+                        </div>
+
+                        <div class="slider-group mt-half">
+                            <label for="gridRes"
+                                >Grid Resolution: {gridRes}³</label
+                            >
+                            <div
+                                style="display: flex; gap: 0.5rem; justify-content: space-between; align-items: center;"
+                            >
+                                <input
+                                    type="range"
+                                    id="gridRes"
+                                    min="32"
+                                    max="500"
+                                    step="4"
+                                    bind:value={gridRes}
+                                />
+                                <button
+                                    on:click={applyResolution}
+                                    style="padding: 0.4rem 0.6rem; font-size: 0.7rem; min-width: 60px;"
+                                    >APPLY</button
+                                >
+                            </div>
+                            <small
+                                class="desc"
+                                style="margin: 0; color: #ff5555; display: {gridRes >
+                                256
+                                    ? 'block'
+                                    : 'none'};"
+                                >Warning: >256 requires 1GB+ VRAM.</small
+                            >
                         </div>
                     </div>
                 {/if}
