@@ -23,6 +23,7 @@
 
     let gridRes = 128; // Dynamic grid resolution control
     let isRebuilding = false; // Prevents render loop during async teardown
+    let spawnVelocity = 0.5; // Relativistic momentum scaling (v=c is 1.0)
 
     // Visual Fall-off Curve
     let curvePoints = [
@@ -61,8 +62,22 @@
             engine.absorption = absorption;
             engine.updateCurve(curvePoints);
 
-            // Start with an electron as default visualization
-            engine.injectSoliton(0.08, -1);
+            // Start with a head-on collision demo
+            engine.clearGrid();
+            engine.injectSolitons([
+                {
+                    scale: 0.08,
+                    charge: -1,
+                    offset: [-30, 0, 0],
+                    velocity: [spawnVelocity, 0, 0],
+                },
+                {
+                    scale: 0.08,
+                    charge: -1,
+                    offset: [30, 0, 0],
+                    velocity: [-spawnVelocity, 0, 0],
+                },
+            ]);
             isRebuilding = false;
         } catch (err: any) {
             errorMsg = err.message || "Failed to initialize WebGPU";
@@ -94,19 +109,41 @@
 
     function spawnElectron() {
         if (!engine) return;
-        engine.injectSoliton(0.08, -1); // H-, Cyan glow
+        engine.clearGrid();
+        engine.injectSolitons([
+            {
+                scale: 0.08,
+                charge: -1,
+                offset: [0, 0, 0],
+                velocity: [0, 0, spawnVelocity],
+            },
+        ]);
     }
 
     function spawnPositron() {
         if (!engine) return;
-        engine.injectSoliton(0.08, 1); // H+, Magenta glow
+        engine.clearGrid();
+        engine.injectSolitons([
+            {
+                scale: 0.08,
+                charge: 1,
+                offset: [0, 0, 0],
+                velocity: [0, 0, spawnVelocity],
+            },
+        ]);
     }
 
     function spawnPhoton() {
         if (!engine) return;
-        // In a topological formulation, a "photon" is often just a zero-charge localized dipole wave
-        // We simulate it by just giving it a zero relative helicity flip or an entirely unknotted ring
-        engine.injectSoliton(0.1, 0);
+        engine.clearGrid();
+        engine.injectSolitons([
+            {
+                scale: 0.1,
+                charge: 0,
+                offset: [0, 0, 0],
+                velocity: [0, 0, spawnVelocity],
+            },
+        ]);
     }
 
     // Advanced Spawner
@@ -115,7 +152,15 @@
 
     function spawnCustom() {
         if (!engine) return;
-        engine.injectSoliton(spawnScale, spawnCharge);
+        engine.clearGrid();
+        engine.injectSolitons([
+            {
+                scale: spawnScale,
+                charge: spawnCharge,
+                offset: [0, 0, 0],
+                velocity: [0, 0, spawnVelocity],
+            },
+        ]);
     }
 
     // Camera Drag Controls
@@ -370,11 +415,78 @@
                                 bind:value={spawnCharge}
                             />
                         </div>
+                        <div class="slider-group mt-half">
+                            <label for="spawnVelocity"
+                                >Z-Axis Momentum (v/c): {spawnVelocity.toFixed(
+                                    2,
+                                )}</label
+                            >
+                            <input
+                                type="range"
+                                id="spawnVelocity"
+                                min="0.0"
+                                max="0.95"
+                                step="0.01"
+                                bind:value={spawnVelocity}
+                            />
+                        </div>
                         <div class="spawner-buttons mt-half">
                             <button
                                 class="btn-spawn custom"
                                 on:click={spawnCustom}
                                 >Inject Custom Knot</button
+                            >
+                        </div>
+
+                        <hr class="divider" />
+                        <h3>Soliton Collision Simulator</h3>
+                        <p class="desc">
+                            Mathematically injects multiple opposing Hopfions
+                            using linear superposition. The non-linear GPU
+                            kernel will compute their interaction!
+                        </p>
+                        <div class="spawner-buttons">
+                            <button
+                                class="btn-spawn annihilation"
+                                on:click={() => {
+                                    if (!engine) return;
+                                    engine.clearGrid();
+                                    engine.injectSolitons([
+                                        {
+                                            scale: 0.08,
+                                            charge: -1,
+                                            offset: [0, 0, -35],
+                                            velocity: [0, 0, spawnVelocity],
+                                        },
+                                        {
+                                            scale: 0.08,
+                                            charge: 1,
+                                            offset: [0, 0, 35],
+                                            velocity: [0, 0, -spawnVelocity],
+                                        },
+                                    ]);
+                                }}>💥 Scatter: Annihilation</button
+                            >
+                            <button
+                                class="btn-spawn repulsion"
+                                on:click={() => {
+                                    if (!engine) return;
+                                    engine.clearGrid();
+                                    engine.injectSolitons([
+                                        {
+                                            scale: 0.08,
+                                            charge: -1,
+                                            offset: [0, 0, -35],
+                                            velocity: [0, 0, spawnVelocity],
+                                        },
+                                        {
+                                            scale: 0.08,
+                                            charge: -1,
+                                            offset: [0, 0, 35],
+                                            velocity: [0, 0, -spawnVelocity],
+                                        },
+                                    ]);
+                                }}>💥 Scatter: Repulsion</button
                             >
                         </div>
                     </div>

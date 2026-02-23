@@ -137,15 +137,51 @@ export class SimulatorEngine {
     }
 
     /**
-     * Injects a Hopfion (soliton) into the grid.
+     * Clears the grid explicitly.
      */
-    injectSoliton(scale: number = 0.2, chargeType: number = -1) {
-        // We calculate the fields on the CPU and push to the GPU
-        const newFields = HopfionGenerator.generateFieldBuffer(this.gridSize, scale, chargeType);
+    clearGrid() {
+        const numVoxels = this.gridSize[0] * this.gridSize[1] * this.gridSize[2];
+        const emptyData = new Float32Array(numVoxels * 8);
+        this.device.queue.writeBuffer(this.fieldBufferA, 0, emptyData);
+        this.device.queue.writeBuffer(this.fieldBufferB, 0, emptyData);
+    }
+
+    /**
+     * Injects multiple Hopfions (solitons) into the grid, accurately accumulating their fields.
+     */
+    injectSolitons(solitons: { scale: number, charge: number, offset: [number, number, number], velocity: [number, number, number] }[]) {
+        if (solitons.length === 0) return;
+
+        const numVoxels = this.gridSize[0] * this.gridSize[1] * this.gridSize[2];
+        let combinedBuffer = new Float32Array(numVoxels * 8);
+
+        // Accumulate exactly (linear superposition applies strictly to generating fields before FDTD processing)
+        for (const sol of solitons) {
+            combinedBuffer = HopfionGenerator.generateFieldBuffer(
+                this.gridSize,
+                sol.scale,
+                sol.charge,
+                sol.offset,
+                sol.velocity,
+                combinedBuffer
+            );
+        }
 
         // Write to both buffers so the compute shader doesn't overwrite it with empty history on frame 1
-        this.device.queue.writeBuffer(this.fieldBufferA, 0, newFields.buffer);
-        this.device.queue.writeBuffer(this.fieldBufferB, 0, newFields.buffer);
+        this.device.queue.writeBuffer(this.fieldBufferA, 0, combinedBuffer);
+        this.device.queue.writeBuffer(this.fieldBufferB, 0, combinedBuffer);
+    }
+
+    /**
+     * Legacy helper to inject a single stationary central soliton.
+     */
+    injectSoliton(scale: number = 0.2, chargeType: number = -1) {
+        this.injectSolitons([{
+            scale: scale,
+            charge: chargeType,
+            offset: [0, 0, 0],
+            velocity: [0, 0, 0]
+        }]);
     }
 
     updateCamera() {

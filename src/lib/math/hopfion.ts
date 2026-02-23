@@ -3,28 +3,91 @@ export interface Vector3 {
 }
 
 export class HopfionGenerator {
-    static generateFieldBuffer(gridSize: [number, number, number], scale: number = 1.0, charge: number = -1): Float32Array {
+    static generateFieldBuffer(
+        gridSize: [number, number, number],
+        scale: number = 1.0,
+        charge: number = -1,
+        offset: [number, number, number] = [0, 0, 0],
+        velocity: [number, number, number] = [0, 0, 0],
+        existingBuffer?: Float32Array
+    ): Float32Array {
         const [nx, ny, nz] = gridSize;
         const numVoxels = nx * ny * nz;
-        const buffer = new Float32Array(numVoxels * 8);
+        const buffer = existingBuffer || new Float32Array(numVoxels * 8);
 
-        const cx = nx / 2;
-        const cy = ny / 2;
-        const cz = nz / 2;
+        const cx = nx / 2 + offset[0];
+        const cy = ny / 2 + offset[1];
+        const cz = nz / 2 + offset[2];
+
+        // Velocity components
+        const vx = velocity[0];
+        const vy = velocity[1];
+        const vz = velocity[2];
+        const v2 = vx * vx + vy * vy + vz * vz;
+        const v = Math.sqrt(v2);
+
+        let gamma = 1.0;
+        if (v > 0.0001 && v < 0.999) {
+            gamma = 1.0 / Math.sqrt(1.0 - v2);
+        } else if (v >= 0.999) {
+            gamma = 1.0 / Math.sqrt(1.0 - 0.999 * 0.999); // Cap to prevent Infinity
+        }
 
         for (let z = 0; z < nz; z++) {
             for (let y = 0; y < ny; y++) {
                 for (let x = 0; x < nx; x++) {
                     const idx = (x + y * nx + z * nx * ny) * 8;
 
-                    const px = (x - cx) * scale;
-                    const py = (y - cy) * scale;
-                    const pz = (z - cz) * scale;
+                    // Relative pos
+                    let px = (x - cx) * scale;
+                    let py = (y - cy) * scale;
+                    let pz = (z - cz) * scale;
 
-                    const { E, B } = this.calculateRanadaField(px, py, pz, charge);
+                    // Lorentz Coordinate Contraction along the axis of motion
+                    if (v > 0.0001) {
+                        const r_dot_v = px * vx + py * vy + pz * vz;
+                        const factor = (gamma - 1.0) * r_dot_v / v2;
+                        px += factor * vx;
+                        py += factor * vy;
+                        pz += factor * vz;
+                    }
 
-                    buffer[idx + 0] = E.x; buffer[idx + 1] = E.y; buffer[idx + 2] = E.z;
-                    buffer[idx + 4] = B.x; buffer[idx + 5] = B.y; buffer[idx + 6] = B.z;
+                    // Get rest frame fields
+                    const { E: E_rest, B: B_rest } = this.calculateRanadaField(px, py, pz, charge);
+
+                    let Ex = E_rest.x; let Ey = E_rest.y; let Ez = E_rest.z;
+                    let Bx = B_rest.x; let By = B_rest.y; let Bz = B_rest.z;
+
+                    // Lorentz Field Transformation
+                    if (v > 0.0001) {
+                        // E_lab = gamma * (E_rest - v x B_rest) - (gamma - 1) * (v . E_rest) / v2 * v
+                        // B_lab = gamma * (B_rest + v x E_rest) - (gamma - 1) * (v . B_rest) / v2 * v
+
+                        const cross_v_B_x = vy * B_rest.z - vz * B_rest.y;
+                        const cross_v_B_y = vz * B_rest.x - vx * B_rest.z;
+                        const cross_v_B_z = vx * B_rest.y - vy * B_rest.x;
+
+                        const cross_v_E_x = vy * E_rest.z - vz * E_rest.y;
+                        const cross_v_E_y = vz * E_rest.x - vx * E_rest.z;
+                        const cross_v_E_z = vx * E_rest.y - vy * E_rest.x;
+
+                        const v_dot_E = vx * E_rest.x + vy * E_rest.y + vz * E_rest.z;
+                        const v_dot_B = vx * B_rest.x + vy * B_rest.y + vz * B_rest.z;
+
+                        const factor = (gamma - 1.0) / v2;
+
+                        Ex = gamma * (E_rest.x - cross_v_B_x) - factor * v_dot_E * vx;
+                        Ey = gamma * (E_rest.y - cross_v_B_y) - factor * v_dot_E * vy;
+                        Ez = gamma * (E_rest.z - cross_v_B_z) - factor * v_dot_E * vz;
+
+                        Bx = gamma * (B_rest.x + cross_v_E_x) - factor * v_dot_B * vx;
+                        By = gamma * (B_rest.y + cross_v_E_y) - factor * v_dot_B * vy;
+                        Bz = gamma * (B_rest.z + cross_v_E_z) - factor * v_dot_B * vz;
+                    }
+
+                    // Add to buffer (accumulation allows spawning multiple interacting solitons)
+                    buffer[idx + 0] += Ex; buffer[idx + 1] += Ey; buffer[idx + 2] += Ez;
+                    buffer[idx + 4] += Bx; buffer[idx + 5] += By; buffer[idx + 6] += Bz;
                 }
             }
         }
